@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import {supabase } from '@/lib/supabaseClient';
 import { User } from '@/types';
 
 interface AuthContextType {
@@ -9,24 +10,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// Mock user data
-const mockUsers: User[] = [
-  {
-    id: 'admin-1',
-    email: 'admin@university.edu',
-    name: 'Dr. Sarah Wilson',
-    role: 'admin',
-    department: 'IT Services'
-  },
-  {
-    id: 'lecturer-1',
-    email: 'lecturer@university.edu',
-    name: 'Prof. John Smith',
-    role: 'lecturer',
-    department: 'Computer Science'
-  }
-];
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -50,31 +33,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, password: string) => {
-    setIsLoading(true);
-    
-    try {
-      // Mock API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Find user by email (in real app, this would be server-side)
-      const foundUser = mockUsers.find(u => u.email === email);
-      
-      if (!foundUser || password !== 'password123') {
-        throw new Error('Invalid credentials');
-      }
+  setIsLoading(true);
 
-      // Mock JWT token
-      const token = `mock-jwt-token-${foundUser.id}`;
-      
-      localStorage.setItem('auth_token', token);
-      localStorage.setItem('auth_user', JSON.stringify(foundUser));
-      setUser(foundUser);
-    } catch (error) {
-      throw error;
-    } finally {
-      setIsLoading(false);
+  try {
+    // Supabase login
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (authError || !authData.user) {
+      throw new Error(authError?.message || 'Login failed');
     }
-  };
+
+    // Get user profile
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', authData.user.id) // assuming the user ID in user_profiles matches Supabase Auth ID
+      .single();
+
+    if (profileError || !profile) {
+      throw new Error(profileError?.message || 'User profile not found');
+    }
+
+    const user: User = {
+      id: authData.user.id,
+      email: authData.user.email ?? '',
+      name: profile.name,
+      role: profile.role, // e.g., 'admin' or 'lecturer'
+      department: profile.department,
+    };
+
+    localStorage.setItem('auth_token', authData.session?.access_token || '');
+    localStorage.setItem('auth_user', JSON.stringify(user));
+    setUser(user);
+
+  // eslint-disable-next-line no-useless-catch
+  } catch (error) {
+    throw error;
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const logout = () => {
     localStorage.removeItem('auth_token');
