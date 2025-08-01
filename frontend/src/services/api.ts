@@ -1,4 +1,5 @@
 import { Room, Booking, BookingRequest, RoomSearchFilters, User } from '@/types';
+import { supabase } from '@/lib/supabaseClient';
 
 // Mock data
 const mockRooms: Room[] = [
@@ -77,46 +78,48 @@ const mockBookings: Booking[] = [
   }
 ];
 
-// API simulation with delays
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 export const api = {
   // Room APIs
   async getRooms(filters?: RoomSearchFilters): Promise<Room[]> {
-    await delay(500);
-    
-    let filteredRooms = [...mockRooms];
+    let query = supabase.from('room').select('*');
     
     if (filters) {
       if (filters.capacity) {
-        filteredRooms = filteredRooms.filter(room => room.capacity >= filters.capacity!);
+        query = query.gte('capacity', filters.capacity);
       }
       if (filters.type) {
-        filteredRooms = filteredRooms.filter(room => room.type === filters.type);
+        query = query.eq('type', filters.type);
       }
       if (filters.building) {
-        filteredRooms = filteredRooms.filter(room => room.building === filters.building);
+        query = query.eq('building', filters.building);
       }
       if (filters.location) {
-        filteredRooms = filteredRooms.filter(room => 
-          room.location.toLowerCase().includes(filters.location!.toLowerCase()) ||
-          room.building.toLowerCase().includes(filters.location!.toLowerCase())
+        query = query.or(
+          `location.ilike.%${filters.location}%,building.ilike.%${filters.location}%`
         );
       }
     }
     
-    return filteredRooms;
+    const { data, error } = await query.order('name', { ascending: true });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+    return data as Room[];
   },
 
   async createRoom(room: Omit<Room, 'id'>): Promise<Room> {
-    await delay(800);
-    const newRoom = { ...room, id: `room-${Date.now()}` };
-    mockRooms.push(newRoom);
-    return newRoom;
+    const { data, error } = await supabase
+      .from('rooms')
+      .insert([room])
+      .select()
+      .single();
+    if (error) {
+      throw new Error(error.message);}
+    return data as Room;
   },
 
   async updateRoom(id: string, room: Partial<Room>): Promise<Room> {
-    await delay(600);
     const index = mockRooms.findIndex(r => r.id === id);
     if (index === -1) throw new Error('Room not found');
     
@@ -125,7 +128,6 @@ export const api = {
   },
 
   async deleteRoom(id: string): Promise<void> {
-    await delay(500);
     const index = mockRooms.findIndex(r => r.id === id);
     if (index === -1) throw new Error('Room not found');
     mockRooms.splice(index, 1);
@@ -133,7 +135,6 @@ export const api = {
 
   // Booking APIs
   async getBookings(userId?: string, date?: string): Promise<Booking[]> {
-    await delay(400);
     
     let filteredBookings = mockBookings.map(booking => ({
       ...booking,
@@ -152,7 +153,6 @@ export const api = {
   },
 
   async createBooking(bookingData: BookingRequest): Promise<Booking> {
-    await delay(700);
     
     // Check for conflicts
     const conflicts = mockBookings.filter(b => 
@@ -184,7 +184,6 @@ export const api = {
   },
 
   async updateBooking(id: string, updates: Partial<Booking>): Promise<Booking> {
-    await delay(600);
     const index = mockBookings.findIndex(b => b.id === id);
     if (index === -1) throw new Error('Booking not found');
     
@@ -193,7 +192,6 @@ export const api = {
   },
 
   async deleteBooking(id: string): Promise<void> {
-    await delay(500);
     const index = mockBookings.findIndex(b => b.id === id);
     if (index === -1) throw new Error('Booking not found');
     mockBookings.splice(index, 1);
@@ -201,7 +199,6 @@ export const api = {
 
   // Check room availability for a specific date and time range
   async checkAvailability(roomId: string, date: string, startTime: string, endTime: string): Promise<boolean> {
-    await delay(300);
     
     const conflicts = mockBookings.filter(b => 
       b.roomId === roomId &&
